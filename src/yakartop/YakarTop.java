@@ -11,6 +11,4 @@ package yakartop;
  */
 public class YakarTop {
     public static boolean amIaServer;
-    
-    
 }

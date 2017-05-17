@@ -13,6 +13,10 @@ import java.net.Socket;
  */
 public class Gamer {
     public  String TakmaAd;
+    public boolean isJoined;
+    public boolean isHoldingBall;
+    public int onGame;
+    public int playerNo;
     private Socket client;
     private MainFrame myFrame;
     public  MessageList myInputMessages;

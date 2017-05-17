@@ -18,18 +18,19 @@ import java.util.logging.Logger;
  */
 public class MainFrame extends javax.swing.JFrame {
     
-    int MAX_GAMERS = 27;
+    int MAX_GAMERS = 21;
     int MAX_GAMES = 3;
     
     public String myUsername;
     public String myPassword;
     public Gamer[] gamers = new Gamer[MAX_GAMERS];
-    public Gamer player = null;
+    public Gamer server = null;
     private static InetAddress host;
     private static int port;
     
-    
     public Game[] games = new Game[MAX_GAMES];
+    public int gameCount = 0;
+    public int newSendsSinceBallArrived = 0;
     
     public MainFrame() {
         initComponents();
@@ -37,19 +38,84 @@ public class MainFrame extends javax.swing.JFrame {
     public void printResult(String msg){
         txtaMesajlar.setText(txtaMesajlar.getText() + "\n"  + msg);
     }
+    public void printJoinableList(String list)
+    {
+        lblJoinableList.setText("Joinable games are: " + list);
+    }
+    
+    // başlamamış oyunların listesini oluşturur istenen oyuncuya mesaj olarak gönderir
+    public void sendJoinableListTo(Gamer playerToSend_p) 
+    {
+        String joinableList=" ";
 
+        for(int i=0; i<games.length; i++)
+        {
+            // mevcut bir oyun başlamış değilse ve eksik oyuncu varsa listeye eklenir
+            if(games[i] != null
+                && !games[i].isGameStarted
+                && games[i].playerCount < games[i].totalPlayers)
+            {
+                joinableList = joinableList + i + " ";
+            }
+        }
+
+        playerToSend_p.myOutputMessages.add("JOINABLE LIST " + joinableList);
+    }
+    
+    // başlatılabilir (oyuncu sayısı tamamlanmış) oyunları server ekranda listeler
+    public void updateStartableList()
+    {
+        String startableList=" ";
+        
+        // mevcut bir oyun başlamış değilse ve eksik oyuncu yoksa listeye eklenir
+        for(int i=0; i<games.length; i++)
+        {
+            if(games[i] != null
+                && !games[i].isGameStarted
+                && games[i].playerCount == games[i].totalPlayers)
+            {
+                startableList = startableList + i + " ";
+            }
+        }
+        lblStartableList.setText("Startable games are: " + startableList);
+    }
+    
+    public int findPlayerNoByName(String name)
+    {
+        int playerNo = -1;
+        
+        for(int i=0; i<games.length; i++)
+        {
+            for (int j=0; j<games[i].players.length; j++)
+            {
+                if (games[i].players[j].TakmaAd.equals(name))
+                {
+                    playerNo = j;
+                }
+            }
+        }
+        return playerNo;
+    }
+    
+    public void activateSendBallButton()
+    {
+        btnSendBall.setEnabled(true);
+    }
+    
     public void makeAction(String msg, Gamer sender)
     {
+        printResult("makeActionİçi");
         String mParsed[] = msg.split(" ");
-        // server'ın mesaj değerlendirme sistemi
+        // SERVER'IN MESAJ DEĞERLENDİRME SİSTEMİ
         if(YakarTop.amIaServer){
+            printResult("serverİçi");
             if(mParsed.length >= 2)
             {
                 if(mParsed[0].equals("LOGIN"))
                 {
                     // sisteme yalnızca aşağıdaki kullanıcı adları girebilir
                     // şifre her zaman için 1
-                    if(mParsed[1].equals("ali")
+                    if((mParsed[1].equals("ali")
                      ||mParsed[1].equals("burak")
                      ||mParsed[1].equals("cemal")
                      ||mParsed[1].equals("derya")
@@ -59,15 +125,21 @@ public class MainFrame extends javax.swing.JFrame {
                      ||mParsed[1].equals("hakan")
                      ||mParsed[1].equals("ilayda")
                      ||mParsed[1].equals("jale")
-                     ||mParsed[1].equals("kemal")
+                     ||mParsed[1].equals("kemal"))
                      &&mParsed[2].equals("1"))
                     {
                         // server'dan ilgili kişiye SUCCESS mesajı gönder
                         sender.myOutputMessages.add("LOGIN SUCCESS");
                         printResult("'" + mParsed[1] + "' successfully logged in");
                         
-                        // ilgili kişinin adını username'de gelen olarak yaz
+                        // ilgili kişinin adını username'de gelen olarak yaz, oyuna katılmadığını belirt
                         sender.TakmaAd = mParsed[1];
+                        sender.isJoined = false;
+                        sender.onGame = -1;
+                        
+                        // ilgili kişiye katılabileceği oyunların listesini gönder (sadece ona)
+                        sendJoinableListTo(sender);
+                        printResult("Current joinable games list is sent to '" + mParsed[1] + "'");
                     }
                     else
                     {
@@ -75,44 +147,128 @@ public class MainFrame extends javax.swing.JFrame {
                         printResult("A login attempt made by '" + mParsed[1] + "' is failed.");
                     }                
                 }
-               
-                if(mParsed[0].equals("TakmaAd"))
+                
+                if(mParsed[0].equals("SETUP"))
                 {
-                    sender.TakmaAd = mParsed[1];
-                }
-                else if(mParsed[0].equals("Mesaj"))
-                {
-                    for (int i = 0; i < gamers.length; i++) {
-                        if(gamers[i] != null &&
-                            gamers[i].TakmaAd != null &&
-                            gamers[i].TakmaAd.equals(mParsed[1]))
+                    games[gameCount] = new Game(Integer.parseInt(mParsed[1]), sender, gameCount, this);
+                    sender.myOutputMessages.add("SETUP SUCCESS");
+                    gameCount++;
+                    // oyuna henüz katılmamış herkes için güncel joinable-list gönder
+                    // gamers[0] server olduğu için atlandı
+                    for(int i=1; i<gamers.length; i++)
+                    {
+                        if(gamers[i] != null && !gamers[i].isJoined)
                         {
-                            gamers[i].myOutputMessages.add(msg);
+                            sendJoinableListTo(gamers[i]);
+                        }
+                    }
+                }
+                
+                if(mParsed[0].equals("JOIN"))
+                {
+                    games[Integer.parseInt(mParsed[1])].addPlayer(sender);
+                    sender.myOutputMessages.add("JOIN SUCCESS");
+                    printResult("'" + sender.TakmaAd + "' joined Game #" + mParsed[1]);
+                    
+                    updateStartableList();
+  
+                }
+                
+                if(mParsed[0].equals("MESSAGE"))
+                {
+                    printResult( "'" + sender.TakmaAd + "' sent a message to players of Game#" + sender.onGame);
+                    
+                    for (int i = 0; i < gamers.length; i++) {
+                        if(gamers[i] != null && gamers[i].onGame==sender.onGame)
+                        {
+                            gamers[i].myOutputMessages.add("MESSAGE " + sender.TakmaAd.toUpperCase() + " " + msg);
                         }
                     }
                 }
             }
         }
+        
+        // CLIENT
         // CLIENT'IN MESAJ DEĞERLENDİRME SİSTEMİ
+        // CLIENT
         else
         {
+            printResult("clientİçi");
             if(mParsed.length >= 2)
             {
                 if (mParsed[0].equals("LOGIN"))
                 {
                     if(mParsed[1].equals("SUCCESS"))
                     {
-                        // login işlemi başarılıysa bir sonraki duruma geç
-                        // ilgili arayüz işlemlerini yap
-                        // ***KATILABİLECEĞİ OYUNLARI LİSTELE
-                        //
-                        //
-                        YakarTop.amIaServer = false;
-                        printResult("Login successful. Please join or start a game.");
+                        txtGameToJoin.setEnabled(true);
+                        btnJoinToGame.setEnabled(true);
+                        txtNoOfPlayers.setEnabled(true);
+                        btnSetUpGame.setEnabled(true);
+                        
+                        printResult("Login successful. You can start a new game with 3/5/7 players OR join one of the following games:");
                     }
                     if(mParsed[1].equals("FAIL"))
                     {
                         printResult("Login failed. Please try again.");
+                    }
+                }
+                
+                if (mParsed[0].equals("SETUP")) //SETUP SUCCESS
+                {
+                    printResult("Set up successful. Wait for remaining players. You can send messages to other players waiting for this game to start.");
+                }
+                
+                if (mParsed[0].equals("JOINABLE"))
+                {
+                    String listToShow = "";
+                    
+                    if(mParsed.length>2)
+                    {
+                        for (int i=2; i<mParsed.length; i++)
+                        {
+                            listToShow = listToShow + mParsed[i];
+                        }
+                    }
+                    printJoinableList(listToShow);
+                }
+                
+                if (mParsed[0].equals("JOIN")) // JOIN SUCCESS
+                {
+                    printResult("Join successful. Wait for remaining players. You can send messages to other players waiting for this game to start.");
+                }
+                
+                if (mParsed[0].equals("MESSAGE"))
+                {
+                    String from = mParsed[1];
+                    String message = " ";
+                    for(int i=3; i<mParsed.length; i++)
+                    {
+                        message = message + mParsed[i] + " ";
+                    }
+                    printResult("Message from " + from + ": " + message);
+                }
+                
+                if (mParsed[0].equals("GAME"))
+                {
+                    if(mParsed[1].equals("STARTED"))
+                    {
+                        printResult("GAME STARTED");
+                    }
+                }
+                
+                // oyuncuya top gelmesi durumu
+                if (mParsed[0].equals("SEND"))
+                {
+                    // top 3.kez paslanmışsa bu oyuncuda patlayacaktır, diğer durumda patlamaz
+                    if(mParsed[2].equals("3"))
+                    {
+                        // TOP GELDİ VE PATLADI İŞLEMİNİ YAP
+                        //
+                    }
+                    else
+                    {
+                        // TOP GELDİ İŞLEMİNİ YAP
+                        //
                     }
                 }
             }
@@ -135,8 +291,8 @@ public class MainFrame extends javax.swing.JFrame {
         btnJoinGame = new javax.swing.JButton();
         jScrollPane1 = new javax.swing.JScrollPane();
         txtaMesajlar = new javax.swing.JTextArea();
-        txtTahmin = new javax.swing.JTextField();
-        btnSend = new javax.swing.JButton();
+        txtMessage = new javax.swing.JTextField();
+        btnSendMessage = new javax.swing.JButton();
         jLabel3 = new javax.swing.JLabel();
         txtLoginUser = new javax.swing.JTextField();
         txtLoginPass = new javax.swing.JTextField();
@@ -150,6 +306,14 @@ public class MainFrame extends javax.swing.JFrame {
         txtNoOfPlayers = new javax.swing.JTextField();
         btnSetUpGame = new javax.swing.JButton();
         jLabel8 = new javax.swing.JLabel();
+        lblJoinableList = new javax.swing.JLabel();
+        lblJoinableList1 = new javax.swing.JLabel();
+        btnStartGame = new javax.swing.JButton();
+        txtGameToStart = new javax.swing.JTextField();
+        jLabel9 = new javax.swing.JLabel();
+        lblStartableList = new javax.swing.JLabel();
+        lblJoinableList3 = new javax.swing.JLabel();
+        btnSendBall = new javax.swing.JButton();
 
         setDefaultCloseOperation(javax.swing.WindowConstants.EXIT_ON_CLOSE);
 
@@ -182,13 +346,14 @@ public class MainFrame extends javax.swing.JFrame {
         txtaMesajlar.setRows(5);
         jScrollPane1.setViewportView(txtaMesajlar);
 
-        txtTahmin.setEnabled(false);
+        txtMessage.setEnabled(false);
 
-        btnSend.setText("Gönder");
-        btnSend.setName("btnSend"); // NOI18N
-        btnSend.addActionListener(new java.awt.event.ActionListener() {
+        btnSendMessage.setText("SEND");
+        btnSendMessage.setActionCommand("SEND");
+        btnSendMessage.setName("btnSendMessage"); // NOI18N
+        btnSendMessage.addActionListener(new java.awt.event.ActionListener() {
             public void actionPerformed(java.awt.event.ActionEvent evt) {
-                btnSendActionPerformed(evt);
+                btnSendMessageActionPerformed(evt);
             }
         });
 
@@ -212,7 +377,7 @@ public class MainFrame extends javax.swing.JFrame {
             }
         });
 
-        jLabel5.setText("Join into...");
+        jLabel5.setText("Join into #");
 
         txtGameToJoin.setEnabled(false);
         txtGameToJoin.setName(""); // NOI18N
@@ -251,65 +416,116 @@ public class MainFrame extends javax.swing.JFrame {
 
         jLabel8.setText("players");
 
+        lblJoinableList.setText("Joinable games are:");
+
+        lblJoinableList1.setText("Possible number of players are 3, 5, 7");
+
+        btnStartGame.setText("START");
+        btnStartGame.setToolTipText("");
+        btnStartGame.setName("btnHostGame"); // NOI18N
+        btnStartGame.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                btnStartGameActionPerformed(evt);
+            }
+        });
+
+        txtGameToStart.setName(""); // NOI18N
+
+        jLabel9.setText("Start game #");
+
+        lblStartableList.setText("Startable games are:");
+
+        lblJoinableList3.setText("Send a message to other players in this game:");
+
+        btnSendBall.setText("SEND BALL");
+        btnSendBall.setToolTipText("");
+        btnSendBall.setEnabled(false);
+        btnSendBall.setName("btnHostGame"); // NOI18N
+        btnSendBall.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                btnSendBallActionPerformed(evt);
+            }
+        });
+
         javax.swing.GroupLayout layout = new javax.swing.GroupLayout(getContentPane());
         getContentPane().setLayout(layout);
         layout.setHorizontalGroup(
             layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
             .addComponent(jScrollPane1, javax.swing.GroupLayout.Alignment.TRAILING)
-            .addGroup(javax.swing.GroupLayout.Alignment.TRAILING, layout.createSequentialGroup()
-                .addContainerGap(253, Short.MAX_VALUE)
-                .addComponent(txtTahmin, javax.swing.GroupLayout.PREFERRED_SIZE, 61, javax.swing.GroupLayout.PREFERRED_SIZE)
-                .addGap(18, 18, 18)
-                .addComponent(btnSend)
-                .addGap(172, 172, 172))
             .addGroup(layout.createSequentialGroup()
-                .addContainerGap(javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.TRAILING)
-                    .addGroup(layout.createSequentialGroup()
-                        .addComponent(jLabel5, javax.swing.GroupLayout.PREFERRED_SIZE, 62, javax.swing.GroupLayout.PREFERRED_SIZE)
-                        .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                        .addComponent(txtGameToJoin, javax.swing.GroupLayout.PREFERRED_SIZE, 77, javax.swing.GroupLayout.PREFERRED_SIZE)
-                        .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                        .addComponent(btnJoinToGame)
-                        .addGap(2, 2, 2))
-                    .addGroup(layout.createSequentialGroup()
-                        .addComponent(jLabel1)
-                        .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                        .addComponent(txtIp, javax.swing.GroupLayout.PREFERRED_SIZE, 106, javax.swing.GroupLayout.PREFERRED_SIZE))
-                    .addGroup(layout.createSequentialGroup()
-                        .addComponent(jLabel3, javax.swing.GroupLayout.PREFERRED_SIZE, 35, javax.swing.GroupLayout.PREFERRED_SIZE)
-                        .addGap(19, 19, 19)
-                        .addComponent(txtLoginUser, javax.swing.GroupLayout.PREFERRED_SIZE, 89, javax.swing.GroupLayout.PREFERRED_SIZE)))
+                .addContainerGap(35, Short.MAX_VALUE)
                 .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-                    .addGroup(javax.swing.GroupLayout.Alignment.TRAILING, layout.createSequentialGroup()
-                        .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.UNRELATED, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-                        .addComponent(jLabel2)
-                        .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.UNRELATED)
-                        .addComponent(txtPort, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
-                        .addGap(52, 52, 52)
-                        .addComponent(btnHostGame)
-                        .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                        .addComponent(btnJoinGame)
-                        .addContainerGap())
                     .addGroup(layout.createSequentialGroup()
-                        .addGap(9, 9, 9)
-                        .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.TRAILING)
-                            .addComponent(jLabel4, javax.swing.GroupLayout.PREFERRED_SIZE, 35, javax.swing.GroupLayout.PREFERRED_SIZE)
-                            .addComponent(jLabel6, javax.swing.GroupLayout.PREFERRED_SIZE, 23, javax.swing.GroupLayout.PREFERRED_SIZE))
-                        .addGap(18, 18, 18)
-                        .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING, false)
-                            .addComponent(jLabel7, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-                            .addComponent(txtLoginPass))
-                        .addGap(8, 8, 8)
-                        .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.TRAILING)
-                            .addComponent(btnLogin)
+                        .addComponent(lblJoinableList3)
+                        .addGap(0, 0, Short.MAX_VALUE))
+                    .addGroup(layout.createSequentialGroup()
+                        .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.TRAILING, false)
                             .addGroup(layout.createSequentialGroup()
-                                .addComponent(txtNoOfPlayers, javax.swing.GroupLayout.PREFERRED_SIZE, 28, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                .addComponent(jLabel1)
                                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                                .addComponent(jLabel8, javax.swing.GroupLayout.PREFERRED_SIZE, 43, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                .addComponent(txtIp, javax.swing.GroupLayout.PREFERRED_SIZE, 106, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                .addGap(10, 10, 10))
+                            .addGroup(layout.createSequentialGroup()
+                                .addComponent(jLabel3, javax.swing.GroupLayout.PREFERRED_SIZE, 35, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                .addGap(19, 19, 19)
+                                .addComponent(txtLoginUser, javax.swing.GroupLayout.PREFERRED_SIZE, 89, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                .addGap(10, 10, 10))
+                            .addGroup(layout.createSequentialGroup()
+                                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.TRAILING)
+                                    .addComponent(lblJoinableList, javax.swing.GroupLayout.PREFERRED_SIZE, 206, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                    .addGroup(layout.createSequentialGroup()
+                                        .addComponent(jLabel5, javax.swing.GroupLayout.PREFERRED_SIZE, 62, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                        .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                        .addComponent(txtGameToJoin, javax.swing.GroupLayout.PREFERRED_SIZE, 77, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                        .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                        .addComponent(btnJoinToGame)))
+                                .addGap(12, 12, 12))
+                            .addGroup(layout.createSequentialGroup()
+                                .addComponent(txtMessage)
                                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                                .addComponent(btnSetUpGame)))
-                        .addGap(0, 0, Short.MAX_VALUE))))
+                                .addComponent(btnSendMessage)))
+                        .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+                            .addGroup(javax.swing.GroupLayout.Alignment.TRAILING, layout.createSequentialGroup()
+                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.UNRELATED, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+                                .addComponent(jLabel2)
+                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.UNRELATED)
+                                .addComponent(txtPort, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                .addGap(52, 52, 52)
+                                .addComponent(btnHostGame)
+                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                .addComponent(btnJoinGame)
+                                .addContainerGap())
+                            .addGroup(layout.createSequentialGroup()
+                                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.TRAILING)
+                                    .addComponent(jLabel4, javax.swing.GroupLayout.PREFERRED_SIZE, 35, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                    .addComponent(jLabel6, javax.swing.GroupLayout.PREFERRED_SIZE, 23, javax.swing.GroupLayout.PREFERRED_SIZE))
+                                .addGap(18, 18, 18)
+                                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+                                    .addComponent(lblJoinableList1, javax.swing.GroupLayout.PREFERRED_SIZE, 206, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                    .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.TRAILING)
+                                        .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+                                            .addComponent(lblStartableList, javax.swing.GroupLayout.PREFERRED_SIZE, 165, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                            .addGroup(layout.createSequentialGroup()
+                                                .addComponent(jLabel9)
+                                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                                .addComponent(txtGameToStart, javax.swing.GroupLayout.PREFERRED_SIZE, 26, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                                .addComponent(btnStartGame)))
+                                        .addGroup(layout.createSequentialGroup()
+                                            .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING, false)
+                                                .addComponent(jLabel7, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+                                                .addComponent(txtLoginPass))
+                                            .addGap(8, 8, 8)
+                                            .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.TRAILING)
+                                                .addComponent(btnLogin)
+                                                .addGroup(layout.createSequentialGroup()
+                                                    .addComponent(txtNoOfPlayers, javax.swing.GroupLayout.PREFERRED_SIZE, 28, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                                    .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                                    .addComponent(jLabel8, javax.swing.GroupLayout.PREFERRED_SIZE, 43, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                                    .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                                    .addComponent(btnSetUpGame)))))
+                                    .addComponent(btnSendBall, javax.swing.GroupLayout.PREFERRED_SIZE, 87, javax.swing.GroupLayout.PREFERRED_SIZE))
+                                .addGap(0, 32, Short.MAX_VALUE))))))
         );
         layout.setVerticalGroup(
             layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
@@ -339,12 +555,29 @@ public class MainFrame extends javax.swing.JFrame {
                     .addComponent(txtNoOfPlayers, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
                     .addComponent(btnSetUpGame)
                     .addComponent(jLabel8, javax.swing.GroupLayout.PREFERRED_SIZE, 23, javax.swing.GroupLayout.PREFERRED_SIZE))
-                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED, 125, Short.MAX_VALUE)
+                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
                 .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
-                    .addComponent(btnSend)
-                    .addComponent(txtTahmin, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE))
+                    .addComponent(lblJoinableList, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+                    .addComponent(lblJoinableList1, javax.swing.GroupLayout.PREFERRED_SIZE, 22, javax.swing.GroupLayout.PREFERRED_SIZE))
+                .addGap(33, 33, 33)
+                .addComponent(lblJoinableList3, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+                    .addGroup(layout.createSequentialGroup()
+                        .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
+                            .addComponent(btnStartGame)
+                            .addComponent(txtGameToStart, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
+                            .addComponent(jLabel9, javax.swing.GroupLayout.PREFERRED_SIZE, 23, javax.swing.GroupLayout.PREFERRED_SIZE))
+                        .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                        .addComponent(lblStartableList, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
+                    .addGroup(layout.createSequentialGroup()
+                        .addGap(1, 1, 1)
+                        .addComponent(btnSendMessage))
+                    .addComponent(txtMessage))
+                .addGap(142, 142, 142)
+                .addComponent(btnSendBall)
                 .addGap(18, 18, 18)
-                .addComponent(jScrollPane1, javax.swing.GroupLayout.PREFERRED_SIZE, 237, javax.swing.GroupLayout.PREFERRED_SIZE)
+                .addComponent(jScrollPane1, javax.swing.GroupLayout.PREFERRED_SIZE, 120, javax.swing.GroupLayout.PREFERRED_SIZE)
                 .addContainerGap())
         );
 
@@ -364,17 +597,17 @@ public class MainFrame extends javax.swing.JFrame {
         printResult("Please login with your username and password.");
         btnHostGame.setEnabled(false);
         btnJoinGame.setEnabled(false);
-        txtTahmin.setEnabled(true);
+        txtMessage.setEnabled(true);
         txtLoginUser.setEnabled(true);
         txtLoginPass.setEnabled(true);
         btnLogin.setEnabled(true);
+        YakarTop.amIaServer = false;
     }//GEN-LAST:event_btnJoinGameActionPerformed
 
-    private void btnSendActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnSendActionPerformed
+    private void btnSendMessageActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnSendMessageActionPerformed
        
-        player.myOutputMessages.add("Mesaj " + txtTahmin.getText());
-  
-    }//GEN-LAST:event_btnSendActionPerformed
+        server.myOutputMessages.add("MESSAGE " + txtMessage.getText());
+    }//GEN-LAST:event_btnSendMessageActionPerformed
 
     private void btnLoginActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnLoginActionPerformed
         
@@ -385,11 +618,12 @@ public class MainFrame extends javax.swing.JFrame {
             myUsername = txtLoginUser.getText();
             myPassword = txtLoginPass.getText();
             
-            Socket client = new Socket(host,port);
-            player = new Gamer(client,this);
+            Socket client = null;
+            client = new Socket(host,port);
+            server = new Gamer(client,this);
             // CLIENT'TAN SERVER'A MESAJ: LOGIN username password
-            player.myOutputMessages.add("LOGIN " + myUsername + " " + myPassword);
-
+            server.myOutputMessages.add("LOGIN " + myUsername + " " + myPassword);
+            
         } catch (UnknownHostException ex) {
             Logger.getLogger(MainFrame.class.getName()).log(Level.SEVERE, null, ex);
         } catch (IOException ex) {
@@ -399,16 +633,25 @@ public class MainFrame extends javax.swing.JFrame {
     }//GEN-LAST:event_btnLoginActionPerformed
 
     private void btnJoinToGameActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnJoinToGameActionPerformed
-        // TODO add your handling code here:
+        server.myOutputMessages.add("JOIN " + txtGameToJoin.getText());
     }//GEN-LAST:event_btnJoinToGameActionPerformed
 
     private void btnSetUpGameActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnSetUpGameActionPerformed
-        // TODO add your handling code here:
+        server.myOutputMessages.add("SETUP " + txtNoOfPlayers.getText());
     }//GEN-LAST:event_btnSetUpGameActionPerformed
 
     private void txtNoOfPlayersActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_txtNoOfPlayersActionPerformed
         // TODO add your handling code here:
     }//GEN-LAST:event_txtNoOfPlayersActionPerformed
+
+    private void btnStartGameActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnStartGameActionPerformed
+        int gameToStart = Integer.parseInt(txtGameToStart.getText());
+        games[gameToStart].start();
+    }//GEN-LAST:event_btnStartGameActionPerformed
+
+    private void btnSendBallActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnSendBallActionPerformed
+        // TODO add your handling code here:
+    }//GEN-LAST:event_btnSendBallActionPerformed
 
     /**
      * @param args the command line arguments
@@ -450,8 +693,10 @@ public class MainFrame extends javax.swing.JFrame {
     private javax.swing.JButton btnJoinGame;
     private javax.swing.JButton btnJoinToGame;
     private javax.swing.JButton btnLogin;
-    private javax.swing.JButton btnSend;
+    private javax.swing.JButton btnSendBall;
+    private javax.swing.JButton btnSendMessage;
     private javax.swing.JButton btnSetUpGame;
+    private javax.swing.JButton btnStartGame;
     private javax.swing.JLabel jLabel1;
     private javax.swing.JLabel jLabel2;
     private javax.swing.JLabel jLabel3;
@@ -460,14 +705,20 @@ public class MainFrame extends javax.swing.JFrame {
     private javax.swing.JLabel jLabel6;
     private javax.swing.JLabel jLabel7;
     private javax.swing.JLabel jLabel8;
+    private javax.swing.JLabel jLabel9;
     private javax.swing.JScrollPane jScrollPane1;
+    private javax.swing.JLabel lblJoinableList;
+    private javax.swing.JLabel lblJoinableList1;
+    private javax.swing.JLabel lblJoinableList3;
+    private javax.swing.JLabel lblStartableList;
     private javax.swing.JTextField txtGameToJoin;
+    private javax.swing.JTextField txtGameToStart;
     private javax.swing.JTextField txtIp;
     private javax.swing.JTextField txtLoginPass;
     private javax.swing.JTextField txtLoginUser;
+    private javax.swing.JTextField txtMessage;
     private javax.swing.JTextField txtNoOfPlayers;
     private javax.swing.JTextField txtPort;
-    private javax.swing.JTextField txtTahmin;
     private javax.swing.JTextArea txtaMesajlar;
     // End of variables declaration//GEN-END:variables
 }
