@@ -31,6 +31,8 @@ public class MainFrame extends javax.swing.JFrame {
     public Game[] games = new Game[MAX_GAMES];
     public int gameCount = 0;
     public int newSendsSinceBallArrived = 0;
+    public int timesThisBallSent;
+    TimePlayer time;
     
     public MainFrame() {
         initComponents();
@@ -41,6 +43,16 @@ public class MainFrame extends javax.swing.JFrame {
     public void printJoinableList(String list)
     {
         lblJoinableList.setText("Joinable games are: " + list);
+    }
+    
+    public void printGameInfo(String msg)
+    {
+        lblGameInfo.setText(msg);
+    }
+    
+    public void printDeathInfo(String count)
+    {
+        lblDeathInfo.setText("You exploded: " + count + " times");
     }
     
     // başlamamış oyunların listesini oluşturur istenen oyuncuya mesaj olarak gönderir
@@ -86,11 +98,15 @@ public class MainFrame extends javax.swing.JFrame {
         
         for(int i=0; i<games.length; i++)
         {
-            for (int j=0; j<games[i].players.length; j++)
+            if(games[i] != null)
             {
-                if (games[i].players[j].TakmaAd.equals(name))
+                for (int j=0; j<games[i].players.length; j++)
                 {
-                    playerNo = j;
+                    if (games[i].players[j] != null
+                        && games[i].players[j].TakmaAd.equals(name))
+                    {
+                        playerNo = j;
+                    }
                 }
             }
         }
@@ -185,6 +201,42 @@ public class MainFrame extends javax.swing.JFrame {
                         }
                     }
                 }
+                
+                if(mParsed[0].equals("SEND"))
+                {
+                    // gönderici topu elinden bıraktı (NEW SEND gönderim gitmemesi için önce yapıldı)
+                    sender.isHoldingBall = false;
+                    
+                    int playerNo = findPlayerNoByName(mParsed[3]);
+                    int gameNo = sender.onGame;
+                    Gamer toPlayer = games[gameNo].players[playerNo];
+                    
+                    // yeni bir gönderim olduğunu herkese duyur
+                    for(int i=0; i<games[gameNo].players.length; i++)
+                    {
+                        if(games[gameNo].players[i] != null && games[gameNo].players[i].isHoldingBall)
+                        {
+                            games[gameNo].players[i].myOutputMessages.add("NEW SEND");
+                        }
+                    }
+                    
+                    // top daha önce üç kez atıldıysa, şu an gideceği kişide patlar
+                    // topu atma fırsatı verilmez, ölme sayısı bir artırılır
+                    if(mParsed[2].equals("3"))
+                    {
+                        toPlayer.isHoldingBall = false;
+                        games[gameNo].totalPassesCount++;
+                        games[gameNo].ballsInPlay--;
+                        games[gameNo].playerDeaths[playerNo]++;
+                        toPlayer.myOutputMessages.add("SEND BALL 3 " + String.valueOf(games[gameNo].playerDeaths[playerNo]));
+                    }
+                    else
+                    {
+                        toPlayer.isHoldingBall = true;
+                        games[gameNo].totalPassesCount++;
+                        toPlayer.myOutputMessages.add("SEND BALL " + mParsed[2]);
+                    }
+                }
             }
         }
         
@@ -262,13 +314,27 @@ public class MainFrame extends javax.swing.JFrame {
                     // top 3.kez paslanmışsa bu oyuncuda patlayacaktır, diğer durumda patlamaz
                     if(mParsed[2].equals("3"))
                     {
-                        // TOP GELDİ VE PATLADI İŞLEMİNİ YAP
-                        //
+                        // TOP GELDİ VE PATLADI İŞLEMİNİ YAP ##ARAYÜZ DEĞİŞİKLİKLERİ
+                        printGameInfo("The ball arrived and exploded on you. You lost a point. Wait for another ball to arrrive.");
+                        printDeathInfo(mParsed[3]);
                     }
                     else
                     {
-                        // TOP GELDİ İŞLEMİNİ YAP
-                        //
+                        // TOP GELDİ İŞLEMİNİ YAP ##ARAYÜZ DEĞİŞİKLİKLERİ
+                        printGameInfo("A ball arrived to you. After two seconds, send it to a player which is listed below.");
+                        timesThisBallSent = Integer.parseInt(mParsed[2]);
+                        time = new TimePlayer(this);
+                        time.start();
+                    }
+                }
+                
+                if (mParsed[0].equals("NEW"))
+                {
+                    // ## kaç gönderim olduğunu ekranda da gösterme kodu ekle
+                    newSendsSinceBallArrived++;
+                    if(newSendsSinceBallArrived==3)
+                    {
+                        server.myOutputMessages.add("PLAYER LATE");
                     }
                 }
             }
@@ -314,6 +380,10 @@ public class MainFrame extends javax.swing.JFrame {
         lblStartableList = new javax.swing.JLabel();
         lblJoinableList3 = new javax.swing.JLabel();
         btnSendBall = new javax.swing.JButton();
+        lblGameInfo = new javax.swing.JLabel();
+        txtSendBallTo = new javax.swing.JTextField();
+        lblDeathInfo = new javax.swing.JLabel();
+        lblSendableList = new javax.swing.JLabel();
 
         setDefaultCloseOperation(javax.swing.WindowConstants.EXIT_ON_CLOSE);
 
@@ -447,45 +517,90 @@ public class MainFrame extends javax.swing.JFrame {
             }
         });
 
+        txtSendBallTo.setName(""); // NOI18N
+
+        lblSendableList.setText("You can send ball to: ");
+
         javax.swing.GroupLayout layout = new javax.swing.GroupLayout(getContentPane());
         getContentPane().setLayout(layout);
         layout.setHorizontalGroup(
             layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
             .addComponent(jScrollPane1, javax.swing.GroupLayout.Alignment.TRAILING)
             .addGroup(layout.createSequentialGroup()
-                .addContainerGap(35, Short.MAX_VALUE)
+                .addGap(35, 35, 35)
+                .addComponent(lblJoinableList3)
+                .addGap(0, 0, Short.MAX_VALUE))
+            .addGroup(layout.createSequentialGroup()
+                .addContainerGap(275, Short.MAX_VALUE)
+                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.TRAILING)
+                    .addComponent(jLabel4, javax.swing.GroupLayout.PREFERRED_SIZE, 35, javax.swing.GroupLayout.PREFERRED_SIZE)
+                    .addComponent(jLabel6, javax.swing.GroupLayout.PREFERRED_SIZE, 23, javax.swing.GroupLayout.PREFERRED_SIZE))
+                .addGap(18, 18, 18)
                 .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-                    .addGroup(layout.createSequentialGroup()
-                        .addComponent(lblJoinableList3)
-                        .addGap(0, 0, Short.MAX_VALUE))
-                    .addGroup(layout.createSequentialGroup()
-                        .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.TRAILING, false)
-                            .addGroup(layout.createSequentialGroup()
-                                .addComponent(jLabel1)
-                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                                .addComponent(txtIp, javax.swing.GroupLayout.PREFERRED_SIZE, 106, javax.swing.GroupLayout.PREFERRED_SIZE)
-                                .addGap(10, 10, 10))
-                            .addGroup(layout.createSequentialGroup()
-                                .addComponent(jLabel3, javax.swing.GroupLayout.PREFERRED_SIZE, 35, javax.swing.GroupLayout.PREFERRED_SIZE)
-                                .addGap(19, 19, 19)
-                                .addComponent(txtLoginUser, javax.swing.GroupLayout.PREFERRED_SIZE, 89, javax.swing.GroupLayout.PREFERRED_SIZE)
-                                .addGap(10, 10, 10))
-                            .addGroup(layout.createSequentialGroup()
-                                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.TRAILING)
-                                    .addComponent(lblJoinableList, javax.swing.GroupLayout.PREFERRED_SIZE, 206, javax.swing.GroupLayout.PREFERRED_SIZE)
-                                    .addGroup(layout.createSequentialGroup()
-                                        .addComponent(jLabel5, javax.swing.GroupLayout.PREFERRED_SIZE, 62, javax.swing.GroupLayout.PREFERRED_SIZE)
-                                        .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                                        .addComponent(txtGameToJoin, javax.swing.GroupLayout.PREFERRED_SIZE, 77, javax.swing.GroupLayout.PREFERRED_SIZE)
-                                        .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                                        .addComponent(btnJoinToGame)))
-                                .addGap(12, 12, 12))
-                            .addGroup(layout.createSequentialGroup()
-                                .addComponent(txtMessage)
-                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                                .addComponent(btnSendMessage)))
+                    .addComponent(lblJoinableList1, javax.swing.GroupLayout.PREFERRED_SIZE, 206, javax.swing.GroupLayout.PREFERRED_SIZE)
+                    .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.TRAILING)
                         .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-                            .addGroup(javax.swing.GroupLayout.Alignment.TRAILING, layout.createSequentialGroup()
+                            .addComponent(lblStartableList, javax.swing.GroupLayout.PREFERRED_SIZE, 165, javax.swing.GroupLayout.PREFERRED_SIZE)
+                            .addGroup(layout.createSequentialGroup()
+                                .addComponent(jLabel9)
+                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                .addComponent(txtGameToStart, javax.swing.GroupLayout.PREFERRED_SIZE, 26, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                .addComponent(btnStartGame)))
+                        .addGroup(layout.createSequentialGroup()
+                            .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING, false)
+                                .addComponent(jLabel7, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+                                .addComponent(txtLoginPass))
+                            .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+                                .addGroup(layout.createSequentialGroup()
+                                    .addGap(8, 8, 8)
+                                    .addComponent(txtNoOfPlayers, javax.swing.GroupLayout.PREFERRED_SIZE, 28, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                    .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                    .addComponent(jLabel8, javax.swing.GroupLayout.PREFERRED_SIZE, 43, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                    .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+                                    .addComponent(btnSetUpGame))
+                                .addGroup(javax.swing.GroupLayout.Alignment.TRAILING, layout.createSequentialGroup()
+                                    .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+                                    .addComponent(btnLogin)))
+                            .addContainerGap()))))
+            .addGroup(javax.swing.GroupLayout.Alignment.TRAILING, layout.createSequentialGroup()
+                .addContainerGap(javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+                .addComponent(lblGameInfo, javax.swing.GroupLayout.PREFERRED_SIZE, 504, javax.swing.GroupLayout.PREFERRED_SIZE)
+                .addGap(30, 30, 30))
+            .addGroup(javax.swing.GroupLayout.Alignment.TRAILING, layout.createSequentialGroup()
+                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.TRAILING)
+                    .addGroup(layout.createSequentialGroup()
+                        .addContainerGap()
+                        .addComponent(lblSendableList, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
+                    .addGroup(layout.createSequentialGroup()
+                        .addGap(20, 20, 20)
+                        .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+                            .addGroup(layout.createSequentialGroup()
+                                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.TRAILING, false)
+                                    .addGroup(layout.createSequentialGroup()
+                                        .addComponent(jLabel1)
+                                        .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                        .addComponent(txtIp, javax.swing.GroupLayout.PREFERRED_SIZE, 106, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                        .addGap(10, 10, 10))
+                                    .addGroup(layout.createSequentialGroup()
+                                        .addComponent(jLabel3, javax.swing.GroupLayout.PREFERRED_SIZE, 35, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                        .addGap(19, 19, 19)
+                                        .addComponent(txtLoginUser, javax.swing.GroupLayout.PREFERRED_SIZE, 89, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                        .addGap(10, 10, 10))
+                                    .addGroup(layout.createSequentialGroup()
+                                        .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.TRAILING)
+                                            .addComponent(lblJoinableList, javax.swing.GroupLayout.PREFERRED_SIZE, 206, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                            .addGroup(layout.createSequentialGroup()
+                                                .addComponent(jLabel5, javax.swing.GroupLayout.PREFERRED_SIZE, 62, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                                .addComponent(txtGameToJoin, javax.swing.GroupLayout.PREFERRED_SIZE, 77, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                                .addComponent(btnJoinToGame)))
+                                        .addGap(12, 12, 12))
+                                    .addGroup(layout.createSequentialGroup()
+                                        .addComponent(txtMessage)
+                                        .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                                        .addComponent(btnSendMessage)))
                                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.UNRELATED, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
                                 .addComponent(jLabel2)
                                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.UNRELATED)
@@ -493,39 +608,15 @@ public class MainFrame extends javax.swing.JFrame {
                                 .addGap(52, 52, 52)
                                 .addComponent(btnHostGame)
                                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                                .addComponent(btnJoinGame)
-                                .addContainerGap())
-                            .addGroup(layout.createSequentialGroup()
-                                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.TRAILING)
-                                    .addComponent(jLabel4, javax.swing.GroupLayout.PREFERRED_SIZE, 35, javax.swing.GroupLayout.PREFERRED_SIZE)
-                                    .addComponent(jLabel6, javax.swing.GroupLayout.PREFERRED_SIZE, 23, javax.swing.GroupLayout.PREFERRED_SIZE))
+                                .addComponent(btnJoinGame))
+                            .addGroup(javax.swing.GroupLayout.Alignment.TRAILING, layout.createSequentialGroup()
+                                .addGap(0, 0, Short.MAX_VALUE)
+                                .addComponent(txtSendBallTo, javax.swing.GroupLayout.PREFERRED_SIZE, 100, javax.swing.GroupLayout.PREFERRED_SIZE)
                                 .addGap(18, 18, 18)
-                                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-                                    .addComponent(lblJoinableList1, javax.swing.GroupLayout.PREFERRED_SIZE, 206, javax.swing.GroupLayout.PREFERRED_SIZE)
-                                    .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.TRAILING)
-                                        .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-                                            .addComponent(lblStartableList, javax.swing.GroupLayout.PREFERRED_SIZE, 165, javax.swing.GroupLayout.PREFERRED_SIZE)
-                                            .addGroup(layout.createSequentialGroup()
-                                                .addComponent(jLabel9)
-                                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                                                .addComponent(txtGameToStart, javax.swing.GroupLayout.PREFERRED_SIZE, 26, javax.swing.GroupLayout.PREFERRED_SIZE)
-                                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                                                .addComponent(btnStartGame)))
-                                        .addGroup(layout.createSequentialGroup()
-                                            .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING, false)
-                                                .addComponent(jLabel7, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-                                                .addComponent(txtLoginPass))
-                                            .addGap(8, 8, 8)
-                                            .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.TRAILING)
-                                                .addComponent(btnLogin)
-                                                .addGroup(layout.createSequentialGroup()
-                                                    .addComponent(txtNoOfPlayers, javax.swing.GroupLayout.PREFERRED_SIZE, 28, javax.swing.GroupLayout.PREFERRED_SIZE)
-                                                    .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                                                    .addComponent(jLabel8, javax.swing.GroupLayout.PREFERRED_SIZE, 43, javax.swing.GroupLayout.PREFERRED_SIZE)
-                                                    .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                                                    .addComponent(btnSetUpGame)))))
-                                    .addComponent(btnSendBall, javax.swing.GroupLayout.PREFERRED_SIZE, 87, javax.swing.GroupLayout.PREFERRED_SIZE))
-                                .addGap(0, 32, Short.MAX_VALUE))))))
+                                .addComponent(btnSendBall, javax.swing.GroupLayout.PREFERRED_SIZE, 87, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                .addGap(28, 28, 28)
+                                .addComponent(lblDeathInfo, javax.swing.GroupLayout.PREFERRED_SIZE, 169, javax.swing.GroupLayout.PREFERRED_SIZE)))))
+                .addContainerGap())
         );
         layout.setVerticalGroup(
             layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
@@ -574,8 +665,15 @@ public class MainFrame extends javax.swing.JFrame {
                         .addGap(1, 1, 1)
                         .addComponent(btnSendMessage))
                     .addComponent(txtMessage))
-                .addGap(142, 142, 142)
-                .addComponent(btnSendBall)
+                .addGap(73, 73, 73)
+                .addComponent(lblGameInfo, javax.swing.GroupLayout.PREFERRED_SIZE, 39, javax.swing.GroupLayout.PREFERRED_SIZE)
+                .addGap(10, 10, 10)
+                .addComponent(lblSendableList, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
+                    .addComponent(btnSendBall)
+                    .addComponent(txtSendBallTo, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
+                    .addComponent(lblDeathInfo, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
                 .addGap(18, 18, 18)
                 .addComponent(jScrollPane1, javax.swing.GroupLayout.PREFERRED_SIZE, 120, javax.swing.GroupLayout.PREFERRED_SIZE)
                 .addContainerGap())
@@ -645,12 +743,26 @@ public class MainFrame extends javax.swing.JFrame {
     }//GEN-LAST:event_txtNoOfPlayersActionPerformed
 
     private void btnStartGameActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnStartGameActionPerformed
+        
         int gameToStart = Integer.parseInt(txtGameToStart.getText());
+        
+        for(int i=0; i<games[gameToStart].players.length; i++)
+        {
+            games[gameToStart].players[i].myOutputMessages.add("GAME STARTED");
+        }
+        
+        games[gameToStart].isGameStarted = true;
         games[gameToStart].start();
     }//GEN-LAST:event_btnStartGameActionPerformed
 
     private void btnSendBallActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnSendBallActionPerformed
-        // TODO add your handling code here:
+        
+        String playerToSend = txtSendBallTo.getText();
+        timesThisBallSent++;
+        newSendsSinceBallArrived = 0;
+        server.myOutputMessages.add("SEND BALL " + timesThisBallSent + " " + playerToSend);
+        printGameInfo("You sent the ball to " + playerToSend + ". Wait for another ball to arrive at you.");
+        
     }//GEN-LAST:event_btnSendBallActionPerformed
 
     /**
@@ -707,9 +819,12 @@ public class MainFrame extends javax.swing.JFrame {
     private javax.swing.JLabel jLabel8;
     private javax.swing.JLabel jLabel9;
     private javax.swing.JScrollPane jScrollPane1;
+    private javax.swing.JLabel lblDeathInfo;
+    private javax.swing.JLabel lblGameInfo;
     private javax.swing.JLabel lblJoinableList;
     private javax.swing.JLabel lblJoinableList1;
     private javax.swing.JLabel lblJoinableList3;
+    private javax.swing.JLabel lblSendableList;
     private javax.swing.JLabel lblStartableList;
     private javax.swing.JTextField txtGameToJoin;
     private javax.swing.JTextField txtGameToStart;
@@ -719,6 +834,7 @@ public class MainFrame extends javax.swing.JFrame {
     private javax.swing.JTextField txtMessage;
     private javax.swing.JTextField txtNoOfPlayers;
     private javax.swing.JTextField txtPort;
+    private javax.swing.JTextField txtSendBallTo;
     private javax.swing.JTextArea txtaMesajlar;
     // End of variables declaration//GEN-END:variables
 }

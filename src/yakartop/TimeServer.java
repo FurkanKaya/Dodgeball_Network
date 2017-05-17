@@ -52,8 +52,11 @@ public class TimeServer extends Thread {
                 
                 // seçilen bu oyuncuya top at, top attığına dair bir mesaj gönder
                 selectedPlayer.myOutputMessages.add("SEND BALL 0");
+                
+                // oyun için gerekli sayaçları artır
                 myGame.ballsInPlay++;
                 myGame.ballsGenerated++;
+                myGame.totalPassesCount++;
                 
                 // üretilecek top sayısına ulaştıysa oyunu bitirme kısmına gir
                 if(myGame.ballsGenerated==myGame.ballsGeneratedMax)
