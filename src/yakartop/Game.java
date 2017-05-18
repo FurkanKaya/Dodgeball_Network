@@ -16,7 +16,7 @@ public class Game extends Thread {
     public int ballsInPlayMax;
     public int ballsGeneratedMax;
     
-    public Game (int totalPlayers_p, Gamer firstPlayer_p, int gameNo_p, MainFrame frame_p)
+    public Game (int totalPlayers_p, int maxBalls_p, Gamer firstPlayer_p, int gameNo_p, MainFrame frame_p)
     {
         totalPlayers = totalPlayers_p;
         players = new Gamer[totalPlayers];
@@ -31,7 +31,7 @@ public class Game extends Thread {
         ballsInPlay = 0;
         ballsGenerated = 0;
         ballsInPlayMax = (totalPlayers-1)/2;
-        ballsGeneratedMax = 10;
+        ballsGeneratedMax = maxBalls_p;
     } 
     
     public void addPlayer (Gamer newPlayer_p)
